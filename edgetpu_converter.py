@@ -4,6 +4,7 @@ import subprocess
 
 import converter_util
 
+
 def setup_args(parser):
     parser.add_argument("--input", "-i", help="Path to input file", required=True, type=str)
     parser.add_argument("--input_dims", "-id", help="Dimensions of input tensor", type=int, nargs='+')
@@ -15,22 +16,34 @@ def setup_args(parser):
                         default=128, type=int)
 
 
-def convert_to_coral(args, node_name_dict, input_nodes, input_dims, output_nodes):
+# Accepts a tensorflow frozen graph and produces a edgetpu-compiled graph, as well as an intermediate tflite flatbuffer
+# Arguments:
+# args: program arguments
+# graph_chars: GraphCharacteristics object
+def convert_to_edgetpu(args, input_dims, graph_chars=None):
+    if graph_chars is None:
+        with tf.compat.v1.gfile.GFile(args.input, "rb") as f:
+            graph_def = tf.compat.v1.GraphDef()
+            graph_def.ParseFromString(f.read())
 
-    # Correct for multiple output dimensions. TODO: Find more general solution (or verify that this solution works generally
-    for node in output_nodes:
-        num_out = len(node_name_dict[node].attr['_output_types'].list.type)
+        graph_chars = converter_util.GraphCharacteristics(graph_def)
+
+    output_nodes = []
+
+    # Correct for multiple output dimensions.
+    # TODO: Find more general solution (or verify that this solution works generally
+    for node in graph_chars.output_nodes:
+        num_out = len(node.attr['_output_types'].list.type)
         if num_out > 0:
-            print("Node {} has {} output dimensions".format(node, num_out))
-            output_nodes = [node + ':' + str(i) for i in range(num_out)]
-        output_nodes[0] = node
+            print("Node {} has {} output dimensions".format(node.name, num_out))
+            output_nodes = [node.name + ':' + str(i) for i in range(num_out)]
+        output_nodes[0] = node.name
     print("Corrected output names: ", output_nodes)
-
 
     # Check for quantization
     quantized = False
     for node in output_nodes:
-        if node_name_dict[node.split(':')[0]].attr['_output_quantized'].b:
+        if graph_chars.nodes_by_name[node.split(':')[0]].attr['_output_quantized'].b:
             print("Quantization detected. Using quantized conversion with mean and STD ({}, {})"
                   .format(args.q_mean, args.q_std))
             quantized = True
@@ -38,14 +51,14 @@ def convert_to_coral(args, node_name_dict, input_nodes, input_dims, output_nodes
 
     # Convert and save model
     # TODO: Should use v2 version of converter
-    converter = tf.lite.TFLiteConverter.from_frozen_graph(args.input, input_nodes, output_nodes,
-                                                          input_shapes={input_nodes[0]: input_dims})
+    converter = tf.lite.TFLiteConverter.from_frozen_graph(args.input, graph_chars.input_node_names, output_nodes,
+                                                          input_shapes={graph_chars.input_node_names[0]: input_dims})
     converter.allow_custom_ops = True
     if quantized:
         converter.inference_type = tf.compat.v1.lite.constants.QUANTIZED_UINT8  # TODO: Fix assumption that quantization is 8-bit
         converter.inference_input_type = tf.compat.v1.lite.constants.QUANTIZED_UINT8
         q_stats = {}
-        for node in input_nodes:
+        for node in graph_chars.input_node_names:
             q_stats.update({node: (args.q_mean, args.q_std)})
         converter.quantized_input_stats = q_stats
 
@@ -56,6 +69,7 @@ def convert_to_coral(args, node_name_dict, input_nodes, input_dims, output_nodes
     # Compile the flatbuffer for edge TPU
     subprocess.run(["edgetpu_compiler", args.output_dir + ".tflite"], check=True)
     print("Model successfully compiled")
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -68,9 +82,9 @@ if __name__ == '__main__':
         graph_def.ParseFromString(f.read())
 
     # Get graph data
-    node_name_dict, node_output_dict, input_nodes, output_nodes = converter_util.analyze_graph(graph_def)
+    graph_chars = converter_util.GraphCharacteristics(graph_def)
 
     # Set input dimensions
-    input_dims = converter_util.get_input_dims(args, node_name_dict[input_nodes[0]]) # TODO: Only supports one input tensor
+    input_dims = converter_util.get_input_dims(args, graph_chars.input_nodes[0])  # TODO: Only supports one input tensor
 
-    convert_to_coral(args, node_name_dict, input_nodes, input_dims, output_nodes)
+    convert_to_edgetpu(args, input_dims, graph_chars=graph_chars)

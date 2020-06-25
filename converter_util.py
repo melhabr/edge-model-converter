@@ -1,34 +1,57 @@
-# Builds two dictionaries and two lists,
-# one which links names to nodes,
-# one which links names to names of output nodes
-# one which has the list of input nodes, and
-# one which has the list of output ndoes
-def analyze_graph(graph_def):
-    names = {}
-    outputs = {}
+import queue
 
-    # Build node-name graph
-    for node in graph_def.node:
-        names[node.name] = node
-        outputs[node.name] = []
+# Returns a GraphCharacteristics object given a tensorflow graphdef, which has the following properties:
+# nodes_by_name: A dictionary that maps node names to node objects in the graph
+# node_outputs_by_name: A dictionary that maps node names to their respective output node objects
+# input_node_names: List of likely input node names
+# input_names: List of likely input nodes
+# output_node_names: List of likely output node names
+# output_nodes: List of likely output nodes
+class GraphCharacteristics:
 
-    # Build name-output graph
-    for node in graph_def.node:
-        for input_node_name in node.input:
-            input_node_proper = input_node_name.split(':')[0].lstrip('^')
-            outputs[input_node_proper].append(node)
+    def __init__(self, graph_def):
+        self.nodes_by_name = {}
+        self.node_outputs_by_name = {}
 
-    # Ascertain input nodes
-    input_nodes = [node.name for node in graph_def.node if node.op == 'Placeholder']
-    print("Input names: ", input_nodes)
+        # Build node-name graph
+        for node in graph_def.node:
+            self.nodes_by_name[node.name] = node
+            self.node_outputs_by_name[node.name] = []
 
-    # Ascertain output nodes
-    output_nodes = [node for node in outputs.keys() if outputs[node] == []]
-    print("Output names: ", output_nodes)
+        # Build name-output graph
+        for node in graph_def.node:
+            for input_node_name in node.input:
+                input_node_proper = input_node_name.split(':')[0].lstrip('^')
+                self.node_outputs_by_name[input_node_proper].append(node)
 
-    return names, outputs, input_nodes, output_nodes
+        # Ascertain input nodes
+        self.input_node_names = [node.name for node in graph_def.node if node.op == 'Placeholder']
+        self.input_nodes = [self.nodes_by_name[node_name] for node_name in self.input_node_names]
+        print("Input names: ", self.input_node_names)
 
-# Determines the input dimensions, by whichever means neccessary
+        # Ascertain output nodes
+        self.output_node_names = [node for node in self.node_outputs_by_name.keys() if
+                                  self.node_outputs_by_name[node] == []]
+        self.output_nodes = [self.nodes_by_name[node_name] for node_name in self.output_node_names]
+        print("Output names: ", self.output_node_names)
+
+    # Returns all nodes that are inputs of (but not in) a particular subgraph
+    def get_subgraph_inputs(self, subgraph_name):
+
+        nodes = []
+
+        for node in self.nodes_by_name.values():
+            if subgraph_name not in node.name:
+                continue
+            for input_node in node.input:
+                input_node_proper = input_node.split(':')[0].lstrip('^')
+                if subgraph_name not in input_node_proper and self.nodes_by_name[input_node_proper] not in nodes:
+                    nodes.append(self.nodes_by_name[input_node_proper])
+
+        return nodes
+
+
+# Determines the input dimensions, by whichever means necessary
 def get_input_dims(args, input_node):
     proposed_dims = args.input_dims
     node_dims = [input_node.attr['shape'].shape.dim[i].size for i in
@@ -67,3 +90,111 @@ def get_input_dims(args, input_node):
     node_dims = [(dim if dim != -1 else int(next(proposed_iter))) for dim in node_dims]
     print("Using input dimensions ", node_dims)
     return node_dims
+
+
+# Performs a depth-first-search across a tensorflow graph for a node with a name containing the target string
+# starting at the node "start"
+# note this search from moves outputs to inputs
+# target can be either a string or list of strings
+# returns a result node if one is found, otherwise returns None
+# Will not search more nodes than DFS_SEARCH_LIMIT
+def BFS(graph, start, target, graph_chars=None, search_limit=50):
+    if graph_chars is None:
+        graph_chars = GraphCharacteristics(graph)
+
+    if type(target) == str:
+        target = [target]
+
+    target_node = None
+
+    q = queue.Queue()
+    searchCount = 0
+    for node_name in start.input:
+        q.put(graph_chars.nodes_by_name[node_name.split(':')[0].lstrip('^')])
+    while q is not None and not q.empty():
+        node = q.get()
+        for node_name in node.input:
+            if any(x in node_name for x in target):
+                target_node = graph_chars.nodes_by_name[node_name]
+                q = None
+                break
+            q.put(graph_chars.nodes_by_name[node_name.split(':')[0].lstrip('^')])
+
+        if searchCount > search_limit:
+            break
+
+        searchCount += 1
+
+    return target_node
+
+
+# returns number of classes in SSD classification, where
+# graph is a graphDef
+# graph_chars is the graph characteristics object, if you've already computed it
+def get_num_classes(graph, graph_chars=None):
+    import tensorflow as tf
+
+    if graph_chars is None:
+        graph_chars = GraphCharacteristics(graph)
+
+    search_nodes = graph_chars.get_subgraph_inputs("Postprocessor")
+
+    class_node = None
+    for node in search_nodes:
+        if BFS(graph, node, "ClassPredictor", graph_chars=graph_chars) is not None:
+            class_node = node
+
+    # TODO: Remove tensorflow dependency, if possible
+    class_tensor = tf.graph_util.import_graph_def(graph, return_elements=[class_node.name + ":0"])
+
+    return int(class_tensor[0].shape[-1])
+
+# Returns the NMS input order, which are the order of [loc_data, conf_data, priorbox_data]
+# Where the order is the input order to the postprocessor subgraph with prefix postprocessor_prefix
+def get_NMS_input_order(graph, postprocessor_prefix, graph_chars=None):
+
+    if graph_chars is None:
+        graph_chars = GraphCharacteristics(graph)
+
+    order = [-1, -1, -1]
+
+    input_nodes = graph_chars.get_subgraph_inputs(postprocessor_prefix)
+
+    # Trim irrelevant inputs
+    relevant_input_nodes = []
+    for input_node in input_nodes:
+        if BFS(graph, input_node, ["BoxEncodingPredictor", "ClassPredictor", "GridAnchor"], graph_chars=graph_chars) \
+                is not None and input_node not in relevant_input_nodes:
+            relevant_input_nodes.append(input_node)
+
+    if len(relevant_input_nodes) != 3:
+        print("NMS input order error: {} relevant input nodes, should be 3".format(len(relevant_input_nodes)))
+        return order
+
+
+    # Find locations
+    for idx, node in enumerate(relevant_input_nodes):
+        if BFS(graph, node, "BoxEncodingPredictor", graph_chars=graph_chars) is not None:
+            order[0] = idx
+            break
+    if order[0] == -1:
+        print("NMS input order error: Could not find the locations input")
+
+    # Find confidences
+    for idx, node in enumerate(relevant_input_nodes):
+        if BFS(graph, node, "ClassPredictor", graph_chars=graph_chars) is not None:
+            order[1] = idx
+            break
+    if order[1] == -1:
+        print("NMS input order error: Could not find the classes input")
+
+    # Find priorboxes
+    for idx, node in enumerate(relevant_input_nodes):
+        if BFS(graph, node, "GridAnchor", graph_chars=graph_chars) is not None:
+            order[2] = idx
+            break
+    if order[2] == -1:
+        print("NMS input order error: Could not find the priorboxes input")
+
+    return order
+
