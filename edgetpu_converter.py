@@ -50,7 +50,6 @@ def convert_to_edgetpu(args, input_dims, graph_chars=None):
             break
 
     # Convert and save model
-    # TODO: Should use v2 version of converter
     converter = tf.lite.TFLiteConverter.from_frozen_graph(args.input, graph_chars.input_node_names, output_nodes,
                                                           input_shapes={graph_chars.input_node_names[0]: input_dims})
     converter.allow_custom_ops = True

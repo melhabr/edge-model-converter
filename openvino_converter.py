@@ -9,7 +9,8 @@ import converter_util
 def setup_args(parser):
     parser.add_argument("--input", "-i", help="Path to input file", required=True, type=str)
     parser.add_argument("--input_dims", "-id", help="Dimensions of input tensor", type=int, nargs='+')
-    parser.add_argument("--openvino_dir", "-ovdir", help="Directory of openvino installation", required=True)
+    # TODO: Use openvino_dir environ variable, check /opt/ if it fails
+    parser.add_argument("--openvino_dir", "-ovdir", help="Directory of openvino installation", default="/opt/intel/openvino")
     parser.add_argument("--transformations_config", "-tc", help="Directory of openvino config", required=True)
     parser.add_argument("--pipeline_config", "-pc", help="Tensorflow pipeline config")
     parser.add_argument("--channel_order", "-co", help="Order of input channels", choices=["RGB", "BRG"], default="RGB")

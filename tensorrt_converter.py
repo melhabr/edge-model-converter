@@ -39,8 +39,8 @@ import converter_util
 def setup_args(parser):
     parser.add_argument("--input", "-i", help="Path to input file", required=True, type=str)
     parser.add_argument("--input_dims", "-id", help="Dimensions of input tensor", type=int, nargs='+')
+    parser.add_argument("--no_cuda", help="Disables script components that require the CUDA runtime.", action='store_true')
     parser.add_argument("--output_dir", "-o", help="Output dir and filename.", default="./converted_model")
-
 
 def add_plugin(graph, input_dims, graph_chars=None):
     graph_def = graph.as_graph_def()
@@ -149,6 +149,9 @@ def convert_to_tensorrt(args, input_dims, graph_chars=None):
             raise EnvironmentError("Please modify your graphsurgeon package according to the following:\n"
                                    "https://github.com/AastaNV/TRT_object_detection#update-graphsurgeon-converter")
 
+    if args.no_cuda:
+        exit(0)
+
     with trt.Builder(TRT_LOGGER) as builder, builder.create_network() as network, trt.UffParser() as parser:
         builder.max_workspace_size = 1 << 28
         builder.max_batch_size = 1
@@ -160,7 +163,7 @@ def convert_to_tensorrt(args, input_dims, graph_chars=None):
         engine = builder.build_cuda_engine(network)
 
         buf = engine.serialize()
-        with open(args.output_dir + '_output.bin', 'wb') as f:
+        with open(args.output_dir + '_tensorrt.bin', 'wb') as f:
             f.write(buf)
 
 

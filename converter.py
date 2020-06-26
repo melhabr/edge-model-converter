@@ -8,7 +8,10 @@ import tensorrt_converter
 import openvino_converter
 import converter_util
 
+# TODO: Organize argument grouping
 def setup_args(parser):
+
+    # Common arguments
     parser.add_argument("--input", "-i", help="Path to input file", required=True, type=str)
     parser.add_argument("--input_dims", "-id", help="Dimensions of input tensor", type=int, nargs='+')
     parser.add_argument("--output_dir", "-o", help="Output dir and filename.", default="./converted_model")
@@ -22,10 +25,12 @@ def setup_args(parser):
                         default=128, type=int)
     # TensorRT arguments
     parser.add_argument("--tensorrt", "-t", help="Perform Tensorrt conversion.", action='store_true')
+    parser.add_argument("--no_cuda", help="Disables script components that require the CUDA runtime.", action='store_true')
 
     # OpenVINO arguments
     parser.add_argument("--openvino", "-ov", help="Perform OpenVINO IR conversion", action='store_true')
-    parser.add_argument("--openvino_dir", "-ovdir", help="Directory of openvino installation", required=True)
+    # TODO: Check that openvino install dir is valid
+    parser.add_argument("--openvino_dir", "-ovdir", help="Directory of openvino installation", default="/opt/intel/openvino")
     parser.add_argument("--transformations_config", "-tc", help="Directory of openvino config", required=True)
     parser.add_argument("--pipeline_config", "-pc", help="Tensorflow pipeline config")
     parser.add_argument("--channel_order", "-co", help="Order of input channels", choices=["RGB", "BRG"], default="RGB")
@@ -58,7 +63,7 @@ if __name__ == '__main__':
         tensorrt_converter.convert_to_tensorrt(args, input_dims, graph_chars=graph_chars)
 
     if args.openvino:
-        if args.openvino_dir is None or args.transformations_config is None:
+        if args.transformations_config is None:
             print("Error: --openvino_dir and --transformations_config args are required for openvino conversion")
             exit(1)
         openvino_converter.convert_to_openvino(args, input_dims, graph_chars=graph_chars)
