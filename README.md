@@ -26,7 +26,7 @@ would work fine.
 All converter scripts accept the common command line arguments, and the converter-specific arguments are accepted by 
 both the respective converter and the general converter file (converter.py).
 
-#### Common Command Line Arguments
+### Common Command Line Arguments
 
 These arguments are common to all conversion scripts. 
 
@@ -44,7 +44,7 @@ will prompt the user. If the provided dimensions conflict with existing dimensio
 `--output_dir (-o)` - Output directory and filename. Defaults to `./converted_model`. The correct file extension is
 automatically added. 
 
-#### Edge TPU Command Line Arguments
+### Edge TPU Command Line Arguments
 
 **Optional Arguments**
 
@@ -52,7 +52,7 @@ automatically added.
 
 `--q_std` - Quantization standard deviation to use, if model is quantized. Defaults to 128.
 
-#### TensorRT Command Line Arguments
+### TensorRT Command Line Arguments
 
 **Optional Arguments**
 
