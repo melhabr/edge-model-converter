@@ -31,13 +31,19 @@ def convert_to_edgetpu(args, input_dims, graph_chars=None):
     output_nodes = []
 
     # Correct for multiple output dimensions.
-    # TODO: Find more general solution (or verify that this solution works generally
-    for node in graph_chars.output_nodes:
-        num_out = len(node.attr['_output_types'].list.type)
-        if num_out > 0:
-            print("Node {} has {} output dimensions".format(node.name, num_out))
-            output_nodes = [node.name + ':' + str(i) for i in range(num_out)]
-        output_nodes[0] = node.name
+    if "TFLite_Detection_PostProcess" in graph_chars.output_node_names:
+        output_nodes = ["TFLite_Detection_PostProcess", "TFLite_Detection_PostProcess:1",
+                        "TFLite_Detection_PostProcess:2", "TFLite_Detection_PostProcess:3"]
+    elif any([node.attr['_output_types'] is not None for node in graph_chars.output_nodes]):
+        for node in graph_chars.output_nodes:
+            num_out = len(node.attr['_output_types'].list.type)
+            if num_out > 0:
+                print("Node {} has {} output dimensions".format(node.name, num_out))
+                output_nodes = [node.name + ':' + str(i) for i in range(num_out)]
+            output_nodes[0] = node.name
+    else:
+        output_nodes = graph_chars.output_nodes
+
     print("Corrected output names: ", output_nodes)
 
     # Check for quantization

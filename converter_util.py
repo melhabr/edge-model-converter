@@ -1,5 +1,6 @@
 import queue
 
+
 # Returns a GraphCharacteristics object given a tensorflow graphdef, which has the following properties:
 # nodes_by_name: A dictionary that maps node names to node objects in the graph
 # node_outputs_by_name: A dictionary that maps node names to their respective output node objects
@@ -36,22 +37,27 @@ class GraphCharacteristics:
         print("Output names: ", self.output_node_names)
 
     # Returns all nodes that are inputs of (but not in) a particular subgraph
-    def get_subgraph_inputs(self, subgraph_name):
+    def get_subgraph_inputs(self, subgraph_names):
+
+        if type(subgraph_names) is str:
+            subgraph_names = [subgraph_names]
 
         nodes = []
 
         for node in self.nodes_by_name.values():
-            if subgraph_name not in node.name:
+            if not any(x in node.name for x in subgraph_names):
                 continue
             for input_node in node.input:
                 input_node_proper = input_node.split(':')[0].lstrip('^')
-                if subgraph_name not in input_node_proper and self.nodes_by_name[input_node_proper] not in nodes:
+                if not any(x in input_node_proper for x in subgraph_names) and self.nodes_by_name[
+                        input_node_proper] not in nodes:
                     nodes.append(self.nodes_by_name[input_node_proper])
 
         return nodes
 
 
 # Determines the input dimensions, by whichever means necessary
+# TODO: Automatically determine input dimensions for trickier graphs
 def get_input_dims(args, input_node):
     proposed_dims = args.input_dims
     node_dims = [input_node.attr['shape'].shape.dim[i].size for i in
@@ -68,7 +74,7 @@ def get_input_dims(args, input_node):
             if dim != -1 and dim != proposed_dims[idx]:
                 raise ValueError(
                     "Provided input dimension {} contradicts existing input dimension. Given: {}. Existing: {}"
-                        .format(idx, proposed_dims[idx], dim))
+                    .format(idx, proposed_dims[idx], dim))
 
         return proposed_dims
 
@@ -109,8 +115,7 @@ def BFS(graph, start, target, graph_chars=None, search_limit=50):
 
     q = queue.Queue()
     searchCount = 0
-    for node_name in start.input:
-        q.put(graph_chars.nodes_by_name[node_name.split(':')[0].lstrip('^')])
+    q.put(start)
     while q is not None and not q.empty():
         node = q.get()
         for node_name in node.input:
@@ -134,25 +139,32 @@ def BFS(graph, start, target, graph_chars=None, search_limit=50):
 def get_num_classes(graph, graph_chars=None):
     import tensorflow as tf
 
+    initial_node_names = ["Postprocessor", "PostProcess"]
+    class_node_names = ["ClassPredictor", "TFLite_Detection_PostProcess:1"]
+
     if graph_chars is None:
         graph_chars = GraphCharacteristics(graph)
 
-    search_nodes = graph_chars.get_subgraph_inputs("Postprocessor")
+    search_nodes = graph_chars.get_subgraph_inputs(initial_node_names)
 
     class_node = None
     for node in search_nodes:
-        if BFS(graph, node, "ClassPredictor", graph_chars=graph_chars) is not None:
+        if BFS(graph, node, class_node_names, graph_chars=graph_chars) is not None:
             class_node = node
+            break
+    if class_node is None:
+        print("Error: Could not find a class output node for # class determination")
+        exit(1)
 
     # TODO: Remove tensorflow dependency, if possible
     class_tensor = tf.graph_util.import_graph_def(graph, return_elements=[class_node.name + ":0"])
 
     return int(class_tensor[0].shape[-1])
 
+
 # Returns the NMS input order, which are the order of [loc_data, conf_data, priorbox_data]
 # Where the order is the input order to the postprocessor subgraph with prefix postprocessor_prefix
 def get_NMS_input_order(graph, postprocessor_prefix, graph_chars=None):
-
     if graph_chars is None:
         graph_chars = GraphCharacteristics(graph)
 
@@ -197,4 +209,3 @@ def get_NMS_input_order(graph, postprocessor_prefix, graph_chars=None):
         print("NMS input order error: Could not find the priorboxes input")
 
     return order
-

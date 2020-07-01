@@ -60,8 +60,7 @@ def add_plugin(graph, input_dims, graph_chars=None):
     Input = gs.create_plugin_node(
         name="Input",
         op="Placeholder",
-        # shape=(1,) + input_dims
-        shape=(1,) + (3, 300, 300)
+        shape=(1,) + input_dims
     )
 
     # TODO: Consider automation of parameters
@@ -128,6 +127,8 @@ def add_plugin(graph, input_dims, graph_chars=None):
 
     graph.remove(graph.graph_outputs, remove_exclusive_dependencies=False)
     graph.find_nodes_by_op("NMS_TRT")[0].input.remove("Input")
+    if graph.find_nodes_by_name("Input")[0].input:
+        graph.find_nodes_by_name("Input")[0].input.remove("image_tensor:0")
 
     return graph
 
@@ -157,7 +158,7 @@ def convert_to_tensorrt(args, input_dims, graph_chars=None):
         builder.max_batch_size = 1
         builder.fp16_mode = True
 
-        parser.register_input('Input', (3, 300, 300))
+        parser.register_input('Input', input_dims_corrected)
         parser.register_output('MarkOutput_0')
         parser.parse(args.output_dir + ".uff", network)
         engine = builder.build_cuda_engine(network)
