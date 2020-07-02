@@ -39,6 +39,7 @@ import converter_util
 def setup_args(parser):
     parser.add_argument("--input", "-i", help="Path to input file", required=True, type=str)
     parser.add_argument("--input_dims", "-id", help="Dimensions of input tensor", type=int, nargs='+')
+    parser.add_argument("--debug", "-d", help="Debug flag", action='store_true')
     parser.add_argument("--no_cuda", help="Disables script components that require the CUDA runtime.", action='store_true')
     parser.add_argument("--output_dir", "-o", help="Output dir and filename.", default="./converted_model")
 
@@ -48,8 +49,13 @@ def add_plugin(graph, input_dims, graph_chars=None):
     if graph_chars is None:
         graph_chars = converter_util.GraphCharacteristics(graph_def)
 
-    num_classes = converter_util.get_num_classes(graph_def)
+    num_classes = converter_util.get_num_classes(graph_def, graph_chars=graph_chars)
     input_order = converter_util.get_NMS_input_order(graph_def, "Postprocessor", graph_chars=graph_chars)
+
+    if args.debug:
+        print("Detected number of classes: ", num_classes)
+        print("Detected NMS input order: ", input_order)
+
 
     assert_nodes = graph.find_nodes_by_op("Assert")
     graph.remove(assert_nodes, remove_exclusive_dependencies=True)
@@ -126,7 +132,8 @@ def add_plugin(graph, input_dims, graph_chars=None):
     graph.collapse_namespaces(namespace_map)
 
     graph.remove(graph.graph_outputs, remove_exclusive_dependencies=False)
-    graph.find_nodes_by_op("NMS_TRT")[0].input.remove("Input")
+    if "Input" in graph.find_nodes_by_op("NMS_TRT")[0].input:
+        graph.find_nodes_by_op("NMS_TRT")[0].input.remove("Input")
     if graph.find_nodes_by_name("Input")[0].input:
         graph.find_nodes_by_name("Input")[0].input.remove("image_tensor:0")
 
@@ -138,6 +145,7 @@ def convert_to_tensorrt(args, input_dims, graph_chars=None):
     trt.init_libnvinfer_plugins(TRT_LOGGER, '')
 
     input_dims_corrected = (input_dims[3], input_dims[1], input_dims[2])
+
     graph = add_plugin(gs.DynamicGraph(args.input), input_dims_corrected, graph_chars=graph_chars)
 
     try:

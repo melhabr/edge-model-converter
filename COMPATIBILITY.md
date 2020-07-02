@@ -15,3 +15,4 @@ ssd_mobilenet_v1_quantized_coco     |YES|NO|NO
 ssd_mobilenet_v1_0.75_depth_coco    |NO|NO|NO
 ssd_mobilenet_v2_coco               |NO|YES|YES
 ssd_mobilenet_v2_quantized_coco     |YES|NO|NO
+ssd_inception_v2_coco               |NO | YES|YES
