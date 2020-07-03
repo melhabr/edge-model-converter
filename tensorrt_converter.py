@@ -52,6 +52,10 @@ def add_plugin(graph, input_dims, graph_chars=None):
     num_classes = converter_util.get_num_classes(graph_def, graph_chars=graph_chars)
     input_order = converter_util.get_NMS_input_order(graph_def, "Postprocessor", graph_chars=graph_chars)
 
+    if any(x == -1 for x in input_order):
+        print("NMS input order error: {} Aborting".format(input_order))
+        exit(1)
+
     if args.debug:
         print("Detected number of classes: ", num_classes)
         print("Detected NMS input order: ", input_order)
@@ -127,15 +131,22 @@ def add_plugin(graph, input_dims, graph_chars=None):
         "concat": concat_box_loc,
         "concat_1": concat_box_conf,
         "Concatenate": concat_priorbox,
-        "MultipleGridAnchorGenerator/Concatenate": concat_priorbox
+        "MultipleGridAnchorGenerator/Concatenate": concat_priorbox,
+        "SecondStagePostprocessor": NMS
     }
     graph.collapse_namespaces(namespace_map)
 
     graph.remove(graph.graph_outputs, remove_exclusive_dependencies=False)
-    if "Input" in graph.find_nodes_by_op("NMS_TRT")[0].input:
-        graph.find_nodes_by_op("NMS_TRT")[0].input.remove("Input")
-    if graph.find_nodes_by_name("Input")[0].input:
+    if graph.find_nodes_by_op("NMS_TRT"):
+        if "Input" in graph.find_nodes_by_op("NMS_TRT")[0].input:
+            graph.find_nodes_by_op("NMS_TRT")[0].input.remove("Input")
+    if "image_tensor:0" in graph.find_nodes_by_name("Input")[0].input:
         graph.find_nodes_by_name("Input")[0].input.remove("image_tensor:0")
+    if "image_tensor" in graph.find_nodes_by_name("Input")[0].input:
+        graph.find_nodes_by_name("Input")[0].input.remove("image_tensor")
+    if graph.find_nodes_by_name("ToFloat_3"):
+        if "image_tensor:0" in graph.find_nodes_by_name("ToFloat_3")[0].input:
+            graph.find_nodes_by_name("ToFloat_3")[0].input.remove("image_tensor:0")
 
     return graph
 
@@ -148,11 +159,16 @@ def convert_to_tensorrt(args, input_dims, graph_chars=None):
 
     graph = add_plugin(gs.DynamicGraph(args.input), input_dims_corrected, graph_chars=graph_chars)
 
+    print(graph.find_nodes_by_name("image_tensor"))
+
     try:
         uff.from_tensorflow(
             graph.as_graph_def(),
             output_nodes=['NMS'],
-            output_filename=(args.output_dir + ".uff"))
+            output_filename=(args.output_dir + ".uff"),
+            text=args.debug,
+            write_preprocessed=args.debug,
+            debug_mode=args.debug)
     except TypeError as e:
         if e.__str__() == "Cannot convert value 0 to a TensorFlow DType.":
             raise EnvironmentError("Please modify your graphsurgeon package according to the following:\n"

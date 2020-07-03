@@ -140,7 +140,7 @@ def get_num_classes(graph, graph_chars=None):
     import tensorflow as tf
 
     initial_node_names = ["Postprocessor", "PostProcess"]
-    class_node_names = ["ClassPredictor", "TFLite_Detection_PostProcess:1"]
+    class_node_names = ["ClassPredictor", "TFLite_Detection_PostProcess:1", "Reshape_5"]
 
     if graph_chars is None:
         graph_chars = GraphCharacteristics(graph)
@@ -165,6 +165,12 @@ def get_num_classes(graph, graph_chars=None):
 # Returns the NMS input order, which are the order of [loc_data, conf_data, priorbox_data]
 # Where the order is the input order to the postprocessor subgraph with prefix postprocessor_prefix
 def get_NMS_input_order(graph, postprocessor_prefix, graph_chars=None):
+
+    loc_targets = ["BoxEncodingPredictor", "refined_locations"]
+    conf_targets = ["ClassPredictor", "class_predictions"]
+    priorbox_targets = ["GridAnchor", "TensorArrayStack_4"]
+    all_targets = loc_targets + conf_targets + priorbox_targets
+
     if graph_chars is None:
         graph_chars = GraphCharacteristics(graph)
 
@@ -175,18 +181,16 @@ def get_NMS_input_order(graph, postprocessor_prefix, graph_chars=None):
     # Trim irrelevant inputs
     relevant_input_nodes = []
     for input_node in input_nodes:
-        if BFS(graph, input_node, ["BoxEncodingPredictor", "ClassPredictor", "GridAnchor"], graph_chars=graph_chars) \
+        if BFS(graph, input_node, all_targets, graph_chars=graph_chars) \
                 is not None and input_node not in relevant_input_nodes:
             relevant_input_nodes.append(input_node)
 
     if len(relevant_input_nodes) != 3:
         print("NMS input order error: {} relevant input nodes, should be 3".format(len(relevant_input_nodes)))
-        return order
-
 
     # Find locations
     for idx, node in enumerate(relevant_input_nodes):
-        if BFS(graph, node, "BoxEncodingPredictor", graph_chars=graph_chars) is not None:
+        if BFS(graph, node, loc_targets, graph_chars=graph_chars) is not None:
             order[0] = idx
             break
     if order[0] == -1:
@@ -194,7 +198,7 @@ def get_NMS_input_order(graph, postprocessor_prefix, graph_chars=None):
 
     # Find confidences
     for idx, node in enumerate(relevant_input_nodes):
-        if BFS(graph, node, "ClassPredictor", graph_chars=graph_chars) is not None:
+        if BFS(graph, node, conf_targets, graph_chars=graph_chars) is not None:
             order[1] = idx
             break
     if order[1] == -1:
@@ -202,7 +206,7 @@ def get_NMS_input_order(graph, postprocessor_prefix, graph_chars=None):
 
     # Find priorboxes
     for idx, node in enumerate(relevant_input_nodes):
-        if BFS(graph, node, "GridAnchor", graph_chars=graph_chars) is not None:
+        if BFS(graph, node, priorbox_targets, graph_chars=graph_chars) is not None:
             order[2] = idx
             break
     if order[2] == -1:
