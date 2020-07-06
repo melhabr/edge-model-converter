@@ -1,24 +1,41 @@
 import argparse
 import sys
 import glob
+import os
 
 import tensorflow as tf
 
 import converter_util
 
+
 def setup_args(parser):
     parser.add_argument("--input", "-i", help="Path to input file", required=True, type=str)
     parser.add_argument("--input_dims", "-id", help="Dimensions of input tensor", type=int, nargs='+')
-    # TODO: Use openvino_dir environ variable, check /opt/ if it fails
-    parser.add_argument("--openvino_dir", "-ovdir", help="Directory of openvino installation", default="/opt/intel/openvino")
-    parser.add_argument("--transformations_config", "-tc", help="Directory of openvino config", required=True)
-    parser.add_argument("--pipeline_config", "-pc", help="Tensorflow pipeline config")
-    parser.add_argument("--channel_order", "-co", help="Order of input channels", choices=["RGB", "BRG"], default="RGB")
     parser.add_argument("--output_dir", "-o", help="Output dir and filename.", default="./converted_model")
 
-def convert_to_openvino(args, input_dims, graph_chars):
 
-    sys.path.insert(1, args.openvino_dir + "/deployment_tools/model_optimizer")
+def add_openvino_args(parser):
+    parser.add_argument("--openvino_dir", "-ovdir", help="Directory of openvino installation")
+    parser.add_argument("--transformations_config", "-tc", help="Directory of openvino config")
+    parser.add_argument("--pipeline_config", "-pc", help="Tensorflow pipeline config")
+    parser.add_argument("--channel_order", "-co", help="Order of input channels", choices=["RGB", "BRG"], default="RGB")
+
+
+def convert_to_openvino(args, input_dims, graph_chars):
+    if args.transformations_config is None:
+        print("Error:--transformations_config args are required for openvino conversion")
+        return
+
+    if args.openvino_dir is None:
+        openvino_dir = os.getenv("INTEL_OPENVINO_DIR")
+        if openvino_dir is None:
+            print("Could not find an OpenVINO installation. Assuming location in /opt/intel/openvino, but check that"
+                  "OpenVINO is installed")
+            openvino_dir = "/opt/intel/openvino"
+    else:
+        openvino_dir = args.openvino_dir
+
+    sys.path.insert(1, openvino_dir + "/deployment_tools/model_optimizer")
     from mo.main import main
     from mo.utils.cli_parser import get_tf_cli_parser
 
@@ -69,6 +86,7 @@ def convert_to_openvino(args, input_dims, graph_chars):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     setup_args(parser)
+    add_openvino_args(parser)
     args = parser.parse_args()
 
     with tf.compat.v1.gfile.GFile(args.input, "rb") as f:

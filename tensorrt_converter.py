@@ -39,9 +39,14 @@ import converter_util
 def setup_args(parser):
     parser.add_argument("--input", "-i", help="Path to input file", required=True, type=str)
     parser.add_argument("--input_dims", "-id", help="Dimensions of input tensor", type=int, nargs='+')
-    parser.add_argument("--debug", "-d", help="Debug flag", action='store_true')
-    parser.add_argument("--no_cuda", help="Disables script components that require the CUDA runtime.", action='store_true')
     parser.add_argument("--output_dir", "-o", help="Output dir and filename.", default="./converted_model")
+
+
+def add_tensorrt_arguments(parser):
+    parser.add_argument("--debug", "-d", help="Debug flag", action='store_true')
+    parser.add_argument("--no_cuda", help="Disables script components that require the CUDA runtime.",
+                        action='store_true')
+
 
 def add_plugin(graph, input_dims, graph_chars=None):
     graph_def = graph.as_graph_def()
@@ -195,6 +200,7 @@ def convert_to_tensorrt(args, input_dims, graph_chars=None):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     setup_args(parser)
+    add_tensorrt_arguments(parser)
     args = parser.parse_args()
 
     with tf.compat.v1.gfile.GFile(args.input, "rb") as f:

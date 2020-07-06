@@ -8,8 +8,11 @@ import converter_util
 def setup_args(parser):
     parser.add_argument("--input", "-i", help="Path to input file", required=True, type=str)
     parser.add_argument("--input_dims", "-id", help="Dimensions of input tensor", type=int, nargs='+')
-    # TODO: Allow additions of several mean-std pairs
     parser.add_argument("--output_dir", "-o", help="Output dir and filename.", default="./converted_model")
+
+def add_edgetpu_args(parser):
+
+    # TODO: Allow addition of several mean-std pairs
     parser.add_argument("--q_mean", help="Mean of training data for quantization (if model is quantized)",
                         default=128, type=int)
     parser.add_argument("--q_std", help="STD of training data for quantization (if model is quantized)",
@@ -79,6 +82,7 @@ def convert_to_edgetpu(args, input_dims, graph_chars=None):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     setup_args(parser)
+    add_edgetpu_args(parser)
     args = parser.parse_args()
 
     # Create graph
