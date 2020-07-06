@@ -12,11 +12,10 @@ def setup_args(parser):
 
 def add_edgetpu_args(parser):
 
-    # TODO: Allow addition of several mean-std pairs
     parser.add_argument("--q_mean", help="Mean of training data for quantization (if model is quantized)",
-                        default=128, type=int)
+                        default=[128], type=int, nargs='+')
     parser.add_argument("--q_std", help="STD of training data for quantization (if model is quantized)",
-                        default=128, type=int)
+                        default=[128], type=int, nargs='+')
 
 
 # Accepts a tensorflow frozen graph and produces a edgetpu-compiled graph, as well as an intermediate tflite flatbuffer
@@ -24,12 +23,23 @@ def add_edgetpu_args(parser):
 # args: program arguments
 # graph_chars: GraphCharacteristics object
 def convert_to_edgetpu(args, input_dims, graph_chars=None):
+
+    if len(args.q_mean) != len(args.q_std):
+        print("Error: Number of q_mean arguments ({}) not equal to number of q_std arguments ({})"
+              .format(len(args.q_mean), len(args.q_std)))
+        return
+
     if graph_chars is None:
         with tf.compat.v1.gfile.GFile(args.input, "rb") as f:
             graph_def = tf.compat.v1.GraphDef()
             graph_def.ParseFromString(f.read())
 
         graph_chars = converter_util.GraphCharacteristics(graph_def)
+
+    if len(graph_chars.input_nodes) != len(args.q_mean):
+        print("Error: Number of input nodes ({}) not equal to number of quantization parameters ({})"
+              .format(len(graph_chars.input_nodes), len(args.q_mean)))
+        return
 
     output_nodes = []
 
@@ -53,7 +63,7 @@ def convert_to_edgetpu(args, input_dims, graph_chars=None):
     quantized = False
     for node in output_nodes:
         if graph_chars.nodes_by_name[node.split(':')[0]].attr['_output_quantized'].b:
-            print("Quantization detected. Using quantized conversion with mean and STD ({}, {})"
+            print("Quantization detected. Using quantized conversion with means and STDs ({}, {})"
                   .format(args.q_mean, args.q_std))
             quantized = True
             break
@@ -66,8 +76,8 @@ def convert_to_edgetpu(args, input_dims, graph_chars=None):
         converter.inference_type = tf.compat.v1.lite.constants.QUANTIZED_UINT8  # TODO: Fix assumption that quantization is 8-bit
         converter.inference_input_type = tf.compat.v1.lite.constants.QUANTIZED_UINT8
         q_stats = {}
-        for node in graph_chars.input_node_names:
-            q_stats.update({node: (args.q_mean, args.q_std)})
+        for idx, node in enumerate(graph_chars.input_node_names):
+            q_stats.update({node: (args.q_mean[idx], args.q_std[idx])})
         converter.quantized_input_stats = q_stats
 
     tflite_model = converter.convert()
